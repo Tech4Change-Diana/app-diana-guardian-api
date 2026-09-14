@@ -8,7 +8,8 @@
  * aqui — ADIÇÃO, não reescrita (mesmos métodos da interface `AlertReader`).
  *
  * Selecionar `ALERTS_SOURCE=oci` sem essa implementação falha explicitamente na
- * inicialização, com instrução clara — nunca silenciosamente.
+ * INICIALIZAÇÃO (o construtor lança) — nunca um `/health` verde enganoso que só
+ * quebraria na primeira leitura. Fail-fast no boot, com instrução clara.
  */
 import type { AlertRecord } from "../contracts/index.js";
 import type { AlertReader } from "./AlertReader.js";
@@ -24,10 +25,13 @@ const NOT_IMPLEMENTED =
   "Use ALERTS_SOURCE=fixtures (demo) ou ALERTS_SOURCE=file (dev com o STATE_DIR do núcleo).";
 
 export class OciObjectStorageAlertReader implements AlertReader {
-  constructor(private readonly config: OciObjectStorageConfig) {}
+  constructor(_config: OciObjectStorageConfig) {
+    // Fail-fast no boot (alinhado ao comentário acima): não sobe um servidor
+    // que responderia /health mas quebraria na primeira leitura.
+    throw new Error(NOT_IMPLEMENTED);
+  }
 
   async listAlerts(): Promise<AlertRecord[]> {
-    void this.config;
     throw new Error(NOT_IMPLEMENTED);
   }
 

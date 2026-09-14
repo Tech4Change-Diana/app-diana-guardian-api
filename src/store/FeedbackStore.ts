@@ -10,7 +10,9 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { feedbackRecordSchema } from "../domain/guardianSchemas.js";
 import type { FeedbackRecord } from "../domain/viewTypes.js";
+import { logger } from "../logger.js";
 
 export interface FeedbackStore {
   save(record: FeedbackRecord): Promise<void>;
@@ -57,12 +59,27 @@ export class FileFeedbackStore implements FeedbackStore {
   }
 
   async get(conversationId: string, processedAt: string): Promise<FeedbackRecord | null> {
+    const filePath = this.filePath(conversationId, processedAt);
+    let raw: string;
     try {
-      const raw = await fs.readFile(this.filePath(conversationId, processedAt), "utf-8");
-      return JSON.parse(raw) as FeedbackRecord;
+      raw = await fs.readFile(filePath, "utf-8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;
     }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      logger.warn(`FileFeedbackStore: JSON inválido em ${filePath} — ignorado.`);
+      return null;
+    }
+    const parsed = feedbackRecordSchema.safeParse(value);
+    if (!parsed.success) {
+      logger.warn(`FileFeedbackStore: feedback fora do contrato em ${filePath} — ignorado.`);
+      return null;
+    }
+    return parsed.data;
   }
 }

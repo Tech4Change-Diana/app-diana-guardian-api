@@ -1,7 +1,11 @@
 /**
  * DIANA guardian-api — schemas de validação (zod) de entrada HTTP.
+ *
+ * Os schemas de settings/feedback vêm de `domain/guardianSchemas.ts` (fonte
+ * única, compartilhada com a validação de leitura de disco em `store/*`).
  */
 import { z } from "zod";
+import { guardianSettingsSchema } from "../domain/guardianSchemas.js";
 
 /** Body de `POST /alerts/:id/feedback` (§7.3). */
 export const feedbackBodySchema = z.object({
@@ -12,24 +16,7 @@ export const feedbackBodySchema = z.object({
 export type FeedbackBody = z.infer<typeof feedbackBodySchema>;
 
 /** Body de `PUT /settings` (§7.4). */
-const settingsItemSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  description: z.string(),
-  enabled: z.boolean(),
-});
-
-const settingsSectionSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  items: z.array(settingsItemSchema),
-});
-
-export const settingsBodySchema = z.object({
-  sections: z.array(settingsSectionSchema),
-});
-
-export type SettingsBody = z.infer<typeof settingsBodySchema>;
+export const settingsBodySchema = guardianSettingsSchema;
 
 /** Query de `GET /alerts` (§7.1) — filtros opcionais. */
 export const alertsQuerySchema = z.object({

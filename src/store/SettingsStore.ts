@@ -7,7 +7,9 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { guardianSettingsSchema } from "../domain/guardianSchemas.js";
 import type { GuardianSettings } from "../domain/viewTypes.js";
+import { logger } from "../logger.js";
 import { defaultGuardianSettings } from "./defaultSettings.js";
 
 export interface SettingsStore {
@@ -36,13 +38,31 @@ export class FileSettingsStore implements SettingsStore {
   }
 
   async get(): Promise<GuardianSettings> {
+    let raw: string;
     try {
-      const raw = await fs.readFile(this.filePath, "utf-8");
-      return JSON.parse(raw) as GuardianSettings;
+      raw = await fs.readFile(this.filePath, "utf-8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return defaultGuardianSettings();
       throw err;
     }
+
+    // Valida o documento lido contra o schema; se malformado, loga e devolve o
+    // default (nunca serve settings fora do contrato).
+    let value: unknown;
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      logger.warn(`FileSettingsStore: JSON inválido em ${this.filePath} — usando default.`);
+      return defaultGuardianSettings();
+    }
+    const parsed = guardianSettingsSchema.safeParse(value);
+    if (!parsed.success) {
+      logger.warn(
+        `FileSettingsStore: settings fora do contrato em ${this.filePath} — usando default.`,
+      );
+      return defaultGuardianSettings();
+    }
+    return parsed.data;
   }
 
   async put(settings: GuardianSettings): Promise<GuardianSettings> {
