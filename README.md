@@ -41,41 +41,41 @@ Por padrão o serviço sobe em `http://0.0.0.0:8080` com `ALERTS_SOURCE=fixtures
 
 ### Scripts
 
-| Script | O que faz |
-| --- | --- |
-| `npm run dev` | servidor com `--watch` (TS direto, sem build) |
-| `npm run build` | `tsc` → `dist/` |
-| `npm start` | roda `dist/main.js` |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | vitest |
-| `npm run check` | lint + typecheck + test (rodar antes de cada PR) |
-| `npm run format` | Prettier `--write` |
+| Script              | O que faz                                        |
+| ------------------- | ------------------------------------------------ |
+| `npm run dev`       | servidor com `--watch` (TS direto, sem build)    |
+| `npm run build`     | `tsc` → `dist/`                                  |
+| `npm start`         | roda `dist/main.js`                              |
+| `npm run lint`      | ESLint                                           |
+| `npm run typecheck` | `tsc --noEmit`                                   |
+| `npm test`          | vitest                                           |
+| `npm run check`     | lint + typecheck + test (rodar antes de cada PR) |
+| `npm run format`    | Prettier `--write`                               |
 
 ## Configuração (`.env`)
 
 Ver [`.env.example`](.env.example). Principais variáveis:
 
-| Variável | Default | Descrição |
-| --- | --- | --- |
-| `PORT` / `HOST` | `8080` / `0.0.0.0` | socket HTTP |
-| `LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
-| `ALERTS_SOURCE` | `fixtures` | `fixtures` (demo) · `file` (STATE_DIR do núcleo) · `oci` (Object Storage) |
-| `STATE_DIR` | `../app-diana-monitoring/.state` | usado quando `ALERTS_SOURCE=file` |
-| `OCI_OS_BUCKET/NAMESPACE/REGION` | — | usados quando `ALERTS_SOURCE=oci` |
-| `WRITE_BACKEND` | segue `ALERTS_SOURCE` | `memory` · `file` · `oci` (feedback + settings) |
-| `GUARDIAN_API_KEY` | vazio | **vazio = API aberta**; definido = exige header `x-api-key` |
-| `CORS_ORIGINS` | `*` | CSV de origens permitidas (o guardian-web) |
+| Variável                         | Default                          | Descrição                                                                 |
+| -------------------------------- | -------------------------------- | ------------------------------------------------------------------------- |
+| `PORT` / `HOST`                  | `8080` / `0.0.0.0`               | socket HTTP                                                               |
+| `LOG_LEVEL`                      | `info`                           | `debug\|info\|warn\|error`                                                |
+| `ALERTS_SOURCE`                  | `fixtures`                       | `fixtures` (demo) · `file` (STATE_DIR do núcleo) · `oci` (Object Storage) |
+| `STATE_DIR`                      | `../app-diana-monitoring/.state` | usado quando `ALERTS_SOURCE=file`                                         |
+| `OCI_OS_BUCKET/NAMESPACE/REGION` | —                                | usados quando `ALERTS_SOURCE=oci`                                         |
+| `WRITE_BACKEND`                  | segue `ALERTS_SOURCE`            | `memory` · `file` · `oci` (feedback + settings)                           |
+| `GUARDIAN_API_KEY`               | vazio                            | **vazio = API aberta**; definido = exige header `x-api-key`               |
+| `CORS_ORIGINS`                   | `*`                              | CSV de origens permitidas (o guardian-web)                                |
 
 ## Rotas
 
-| Rota | Descrição |
-| --- | --- |
-| `GET /health` | readiness/liveness (sem auth) |
-| `GET /alerts` | lista de alertas (`AlertSummary`), ordenada por `detectedAt` desc. Query: `priority`, `category`, `limit`, `cursor` |
-| `GET /alerts/:id` | detalhe (`AlertView` — `AnalysisResult` resumido). `400` id malformado · `404` inexistente |
-| `POST /alerts/:id/feedback` | feedback do responsável (`{ verdict, note? }`) |
-| `GET /settings` · `PUT /settings` | preferências (documento único global no MVP) |
+| Rota                              | Descrição                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                     | readiness/liveness (sem auth)                                                                                       |
+| `GET /alerts`                     | lista de alertas (`AlertSummary`), ordenada por `detectedAt` desc. Query: `priority`, `category`, `limit`, `cursor` |
+| `GET /alerts/:id`                 | detalhe (`AlertView` — `AnalysisResult` resumido). `400` id malformado · `404` inexistente                          |
+| `POST /alerts/:id/feedback`       | feedback do responsável (`{ verdict, note? }`)                                                                      |
+| `GET /settings` · `PUT /settings` | preferências (documento único global no MVP)                                                                        |
 
 `id` = `base64url("<conversationId>|<processedAt>")` (reversível).
 
@@ -106,8 +106,8 @@ o guardian-api **não tem camada de autenticação/IAM** no MVP.
   um **freio de demonstração**, não controle de acesso real (sem identidade,
   autorização por responsável ou auditoria).
 - **Nota de risco:** enquanto não houver auth, **não** servir dados sensíveis
-  reais de crianças de forma recorrente — coerente com a postura *mock-first*.
-- **Fase 2:** `src/http/auth.ts` é um *seam* único; a validação de token OIDC
+  reais de crianças de forma recorrente — coerente com a postura _mock-first_.
+- **Fase 2:** `src/http/auth.ts` é um _seam_ único; a validação de token OIDC
   (ex.: OCI IAM Identity Domains) entra ali por **adição, não reescrita**.
 
 ## Fonte de dados
@@ -120,6 +120,19 @@ o guardian-api **não tem camada de autenticação/IAM** no MVP.
 
 Feedback e settings são gravados em `feedback/` e `settings/guardian.json`
 (prefixos novos, não conflitam com o núcleo).
+
+### Robustez e validação
+
+- **Validação de entrada:** registros lidos das fontes de disco (`file`) são
+  validados contra o schema do contrato (`src/contracts/schema.ts`); um payload
+  malformado é **logado e ignorado**, nunca servido. Idem para
+  `settings`/`feedback` em disco.
+- **`GET /alerts` tolerante a falha:** um item que falhe ao resumir é pulado
+  (logado), servindo os demais; falha ao ler a fonte responde **503** previsível.
+- **RF-16 na borda:** a projeção usa **allowlist explícita** (só os campos
+  conhecidos do alerta resumido chegam à resposta), com um backstop denylist
+  como defesa em profundidade. Erros não tratados respondem genericamente (sem
+  vazar conteúdo/stack).
 
 ## Contrato compartilhado
 

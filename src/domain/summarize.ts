@@ -13,25 +13,49 @@
 import type {
   AlertRecord,
   AnalysisResult,
+  ContextualFactor,
   DetectedSignal,
   RiskPrediction,
   RiskPriority,
 } from "../contracts/index.js";
 import { riskCategoryLabels } from "../contracts/index.js";
+import { logger } from "../logger.js";
 import { encodeAlertId } from "./alertId.js";
 import type { AlertSummary, AlertView, AlertViewSignal, GuardianPriority } from "./viewTypes.js";
 
 const FALLBACK_CHILD_NAME = "Criança";
 
-/** Chaves que NUNCA podem aparecer num payload servido ao responsável. */
-const FORBIDDEN_RAW_KEYS = new Set(["messages", "text", "conversation", "rawText", "transcript"]);
+/**
+ * Backstop de RF-16 (defesa em profundidade). A garantia PRIMÁRIA é a projeção
+ * por ALLOWLIST (cada campo do payload é escolhido explicitamente — ver
+ * `toViewSignal`/`toViewCategory`/`toViewFactor`), então nenhuma chave
+ * desconhecida do contrato chega à resposta. Esta denylist é apenas uma rede de
+ * segurança adicional, com nomes comuns de conteúdo bruto.
+ */
+const FORBIDDEN_RAW_KEYS = new Set([
+  "messages",
+  "text",
+  "conversation",
+  "rawText",
+  "transcript",
+  "snippet",
+  "content",
+  "excerpt",
+  "body",
+  "messageText",
+]);
 
 export interface SummarizeOptions {
   /** Nome da criança (o `AnalysisResult` não carrega — §6.4). */
   childName?: string;
 }
 
-/** `RiskPriority` (low|medium|high) -> rótulo da UI (baixa|media|alta). */
+/**
+ * `RiskPriority` (low|medium|high) -> rótulo da UI (baixa|media|alta).
+ * Exaustivo com fallback explícito: um valor fora do contrato (deriva/dado
+ * malformado que passe a validação) cai em "alta" — **fail-safe**, nunca
+ * subestima um risco desconhecido — e é logado.
+ */
 export function mapPriority(priority: RiskPriority): GuardianPriority {
   switch (priority) {
     case "high":
@@ -40,7 +64,22 @@ export function mapPriority(priority: RiskPriority): GuardianPriority {
       return "media";
     case "low":
       return "baixa";
+    default:
+      logger.warn(
+        `mapPriority: prioridade fora do contrato "${String(priority)}" — usando "alta".`,
+      );
+      return "alta";
   }
+}
+
+/** Projeção por allowlist: apenas os campos conhecidos de `RiskPrediction`. */
+function toViewCategory(c: RiskPrediction): RiskPrediction {
+  return { category: c.category, probability: c.probability, level: c.level };
+}
+
+/** Projeção por allowlist: apenas os campos conhecidos de `ContextualFactor`. */
+function toViewFactor(f: ContextualFactor): ContextualFactor {
+  return { type: f.type, label: f.label, description: f.description, contribution: f.contribution };
 }
 
 /** Categoria principal = maior probabilidade; usada em título/rótulo. */
@@ -122,12 +161,12 @@ export function toAlertView(record: AlertRecord, opts: SummarizeOptions = {}): A
     score: result.assessment.score,
     requiresGuardianAttention: result.assessment.requiresGuardianAttention,
     rationale: result.assessment.rationale,
-    categories: result.assessment.categories.map((c) => ({ ...c })),
+    categories: result.assessment.categories.map(toViewCategory),
     signals: result.signals.map(toViewSignal),
     explanation: {
       summary: result.explanation.summary,
       topSignals: result.explanation.topSignals.map(toViewSignal),
-      contextualFactors: result.explanation.contextualFactors.map((f) => ({ ...f })),
+      contextualFactors: result.explanation.contextualFactors.map(toViewFactor),
       recommendedActions: [...result.explanation.recommendedActions],
     },
     model: {

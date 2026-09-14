@@ -4,10 +4,17 @@
  * Varre `STATE_DIR/alerts/<conversationId>/<processedAt>.json` — exatamente o
  * layout que o `FileStateStore` do núcleo grava (§5.1). Usado com
  * `ALERTS_SOURCE=file` para integrar com o núcleo rodando na mesma máquina.
+ *
+ * VALIDAÇÃO DE ENTRADA (§10): cada arquivo é validado contra o schema do
+ * contrato (`parseAlertRecord`) antes de ser servido. Um registro malformado é
+ * LOGADO e IGNORADO — nunca propagado à borda (evita servir dados fora do
+ * contrato, ex.: `priority` inválida que `mapPriority` não conhece).
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { AlertRecord } from "../contracts/index.js";
+import { parseAlertRecord } from "../contracts/schema.js";
+import { logger } from "../logger.js";
 import type { AlertReader } from "./AlertReader.js";
 
 /** Sanitiza um id igual ao `safeId` do núcleo (para localizar o arquivo). */
@@ -22,14 +29,35 @@ export class FileAlertReader implements AlertReader {
     this.alertsDir = path.join(stateDir, "alerts");
   }
 
-  private async readJson(filePath: string): Promise<AlertRecord | null> {
+  /** Lê + parseia JSON. `null` se o arquivo não existe. */
+  private async readRaw(filePath: string): Promise<unknown | null> {
+    let raw: string;
     try {
-      const raw = await fs.readFile(filePath, "utf-8");
-      return JSON.parse(raw) as AlertRecord;
+      raw = await fs.readFile(filePath, "utf-8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;
     }
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      logger.warn(`FileAlertReader: JSON inválido em ${filePath} — ignorado.`);
+      return null;
+    }
+  }
+
+  /** Lê + valida contra o contrato. `null` se inexistente ou malformado. */
+  private async readValidated(filePath: string): Promise<AlertRecord | null> {
+    const raw = await this.readRaw(filePath);
+    if (raw === null) return null;
+    const parsed = parseAlertRecord(raw);
+    if (!parsed.ok) {
+      logger.warn(
+        `FileAlertReader: registro fora do contrato em ${filePath} — ignorado (${parsed.error}).`,
+      );
+      return null;
+    }
+    return parsed.record;
   }
 
   async listAlerts(): Promise<AlertRecord[]> {
@@ -48,7 +76,7 @@ export class FileAlertReader implements AlertReader {
       const files = await fs.readdir(dirPath);
       for (const file of files) {
         if (!file.endsWith(".json")) continue;
-        const record = await this.readJson(path.join(dirPath, file));
+        const record = await this.readValidated(path.join(dirPath, file));
         if (record) records.push(record);
       }
     }
@@ -61,6 +89,6 @@ export class FileAlertReader implements AlertReader {
       safeId(conversationId),
       `${safeId(processedAt)}.json`,
     );
-    return this.readJson(filePath);
+    return this.readValidated(filePath);
   }
 }

@@ -33,6 +33,18 @@ export function buildServer(deps: AppDeps): FastifyInstance {
   // Hook único de auth (§8): no-op quando `GUARDIAN_API_KEY` vazio.
   app.addHook("onRequest", createApiKeyHook(deps.config.apiKey));
 
+  // Error handler global: resposta genérica e previsível; o detalhe fica só no
+  // log do servidor (reforça RF-16 também no caminho de erro — nada de conteúdo
+  // ou stack na resposta).
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ err: error }, "Erro não tratado");
+    const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    if (status >= 500) {
+      return reply.code(500).send({ error: "internal_error", message: "Erro interno." });
+    }
+    return reply.code(status).send({ error: "request_error", message: "Requisição inválida." });
+  });
+
   registerHealthRoutes(app, deps);
   registerAlertRoutes(app, deps);
   registerFeedbackRoutes(app, deps);
