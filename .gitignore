@@ -1,1 +1,21 @@
-node_moodules
+# dependências
+node_modules
+
+# build
+dist
+*.tsbuildinfo
+
+# testes
+coverage
+
+# estado local (alerts/feedback/settings do FileStore em dev)
+.state
+
+# segredos / ambiente
+.env
+.env.local
+.env.*.local
+
+# logs / sistema
+*.log
+.DS_Store
